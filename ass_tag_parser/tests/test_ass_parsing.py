@@ -1,9 +1,14 @@
+from __future__ import annotations
+
+import re
+
 import pytest
 
 from ass_tag_parser import (
     AssDrawCmdMove,
     AssDrawPoint,
     AssItem,
+    AssParserWarning,
     AssTag,
     AssTagAlignment,
     AssTagAlpha,
@@ -51,6 +56,8 @@ from ass_tag_parser import (
     ParseError,
     parse_ass,
 )
+
+# pylint: disable=too-many-lines
 
 
 @pytest.mark.parametrize(
@@ -894,3 +901,433 @@ def test_parsing_invalid_ass_line(source_line: str, error_msg: str) -> None:
     with pytest.raises(ParseError) as exc_info:
         parse_ass(source_line)
     assert error_msg == str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "source_line,error_msg,should_err",
+    [
+        (r"{", "syntax error at pos 1: unterminated curly brace", True),
+        (r"}", "syntax error at pos 0: unexpected curly brace", True),
+        (r"{\t({)}", "syntax error at pos 4: unexpected curly brace", True),
+        (r"{\t(})}", "syntax error at pos 4: unexpected curly brace", True),
+        (r"test{", "syntax error at pos 5: unterminated curly brace", True),
+        (r"test}", "syntax error at pos 4: unexpected curly brace", True),
+        (r"}test{", "syntax error at pos 0: unexpected curly brace", True),
+        (r"{{asd}", "syntax error at pos 1: unexpected curly brace", True),
+        (r"{asd}}", "syntax error at pos 5: unexpected curly brace", True),
+        (r"{{asd}}", "syntax error at pos 1: unexpected curly brace", True),
+        (r"{\b-1}", r"\b expected positive integer, got -1, pos 5", False),
+        (
+            r"{\bord-4}",
+            r"\bord expected positive decimal, got -4.0, pos 8",
+            False,
+        ),
+        (
+            r"{\xbord-4}",
+            r"\xbord expected positive decimal, got -4.0, pos 9",
+            False,
+        ),
+        (
+            r"{\ybord-4}",
+            r"\ybord expected positive decimal, got -4.0, pos 9",
+            False,
+        ),
+        (
+            r"{\shad-4}",
+            r"\shad expected positive decimal, got -4.0, pos 8",
+            False,
+        ),
+        (
+            r"{\xshad-4}",
+            r"\xshad expected positive decimal, got -4.0, pos 9",
+            False,
+        ),
+        (
+            r"{\yshad-4}",
+            r"\yshad expected positive decimal, got -4.0, pos 9",
+            False,
+        ),
+        (r"{\be-2}", r"\be expected positive decimal, got -2.0, pos 6", False),
+        (
+            r"{\blur-4}",
+            r"\blur expected positive decimal, got -4.0, pos 8",
+            False,
+        ),
+        (r"{\fe-5}", r"\fe expected positive integer, got -5, pos 6", False),
+        (r"{\fs-5}", r"\fs expected positive decimal, got -5.0, pos 6", False),
+        (
+            r"{\fscx-5.5}",
+            r"\fscx expected positive decimal, got -5.5, pos 10",
+            False,
+        ),
+        (
+            r"{\fscy-5.5}",
+            r"\fscy expected positive decimal, got -5.5, pos 10",
+            False,
+        ),
+        (r"{\org0,0}", "syntax error at pos 6: expected brace", True),
+        (
+            r"{\org(0)}",
+            r"syntax error at pos 8: \org takes 2 arguments (got 1)",
+            True,
+        ),
+        (
+            r"{\org(0,0,0)}",
+            r"syntax error at pos 12: \org takes 2 arguments (got 3)",
+            True,
+        ),
+        (
+            r"{\org(garbage,0)}",
+            r"syntax error at pos 16: \org takes only decimal arguments",
+            True,
+        ),
+        (r"{\pos0,0}", "syntax error at pos 6: expected brace", True),
+        (
+            r"{\pos(0)}",
+            r"syntax error at pos 8: \pos takes 2 arguments (got 1)",
+            True,
+        ),
+        (
+            r"{\pos(0,0,0)}",
+            r"syntax error at pos 12: \pos takes 2 arguments (got 3)",
+            True,
+        ),
+        (
+            r"{\pos(garbage,0)}",
+            r"syntax error at pos 16: \pos takes only decimal arguments",
+            True,
+        ),
+        (r"{\move0,0,0,0}", "syntax error at pos 7: expected brace", True),
+        (
+            r"{\move(0,0,0)}",
+            r"syntax error at pos 13: \move takes 4 or 6 arguments (got 3)",
+            True,
+        ),
+        (
+            r"{\move(garbage,0,0,0)}",
+            r"syntax error at pos 21: \move requires decimal coordinates",
+            True,
+        ),
+        (
+            r"{\move(0,garbage,0,0)}",
+            r"syntax error at pos 21: \move requires decimal coordinates",
+            True,
+        ),
+        (
+            r"{\move(0,0,garbage,0)}",
+            r"syntax error at pos 21: \move requires decimal coordinates",
+            True,
+        ),
+        (
+            r"{\move(0,0,0,garbage)}",
+            r"syntax error at pos 21: \move requires decimal coordinates",
+            True,
+        ),
+        (
+            r"{\move(garbage,0,0,0,0,0)}",
+            r"syntax error at pos 25: \move requires decimal coordinates",
+            True,
+        ),
+        (
+            r"{\move(0,garbage,0,0,0,0)}",
+            r"syntax error at pos 25: \move requires decimal coordinates",
+            True,
+        ),
+        (
+            r"{\move(0,0,garbage,0,0,0)}",
+            r"syntax error at pos 25: \move requires decimal coordinates",
+            True,
+        ),
+        (
+            r"{\move(0,0,0,garbage,0,0)}",
+            r"syntax error at pos 25: \move requires decimal coordinates",
+            True,
+        ),
+        (
+            r"{\move(0,0,0,0,garbage,0)}",
+            r"syntax error at pos 25: \move requires decimal times",
+            True,
+        ),
+        (
+            r"{\move(0,0,0,0,0,garbage)}",
+            r"syntax error at pos 25: \move requires decimal times",
+            True,
+        ),
+        (
+            r"{\move(0,0,0,0,0)}",
+            r"syntax error at pos 17: \move takes 4 or 6 arguments (got 5)",
+            True,
+        ),
+        (
+            r"{\move(0,0,0,0,-5,0)}",
+            r"\move expected positive times, got (-5.0, 0.0), pos 20",
+            False,
+        ),
+        (
+            r"{\move(0,0,0,0,0,-5)}",
+            r"\move(0,0,0,0,0,-5) (\move expected positive times, got (0.0, -5.0), pos 20",
+            False,
+        ),
+        (
+            r"{\fad(-1,2)}",
+            r"\fad expected positive times, got (-1.0, 2.0), pos 11",
+            False,
+        ),
+        (
+            r"{\fad(1,-2)}",
+            r"\fad expected positive times, got (1.0, -2.0), pos 11",
+            False,
+        ),
+        (
+            r"{\fade(1.1,2,3,4,5,6,7)}",
+            r"syntax error at pos 23: \fade requires integer alpha values",
+            True,
+        ),
+        (
+            r"{\fade(1,2.1,3,4,5,6,7)}",
+            r"syntax error at pos 23: \fade requires integer alpha values",
+            True,
+        ),
+        (
+            r"{\fade(1,2,3.1,4,5,6,7)}",
+            r"syntax error at pos 23: \fade requires integer alpha values",
+            True,
+        ),
+        (
+            r"{\fade(1,2,3,garbage,5,6,7)}",
+            r"syntax error at pos 27: \fade requires decimal times",
+            True,
+        ),
+        (
+            r"{\fade(1,2,3,4,garbage,6,7)}",
+            r"syntax error at pos 27: \fade requires decimal times",
+            True,
+        ),
+        (
+            r"{\fade(1,2,3,4,5,garbage,7)}",
+            r"syntax error at pos 27: \fade requires decimal times",
+            True,
+        ),
+        (
+            r"{\fade(1,2,3,4,5,6,garbage)}",
+            r"syntax error at pos 27: \fade requires decimal times",
+            True,
+        ),
+        (
+            r"{\fade(-1,2,3,4,5,6,7)}",
+            r"syntax error at pos 22: \fade takes only positive alpha values",
+            True,
+        ),
+        (
+            r"{\fade(1,-2,3,4,5,6,7)}",
+            r"syntax error at pos 22: \fade takes only positive alpha values",
+            True,
+        ),
+        (
+            r"{\fade(1,2,-3,4,5,6,7)}",
+            r"syntax error at pos 22: \fade takes only positive alpha values",
+            True,
+        ),
+        (
+            r"{\fade(1,2,3,-4,5,6,7)}",
+            r"\fade expected positive times, got (-4.0, 5.0, 6.0, 7.0), pos 22",
+            False,
+        ),
+        (
+            r"{\fade(1,2,3,4,-5,6,7)}",
+            r"\fade expected positive times, got (4.0, -5.0, 6.0, 7.0), pos 22",
+            False,
+        ),
+        (
+            r"{\fade(1,2,3,4,5,-6,7)}",
+            r"\fade expected positive times, got (4.0, 5.0, -6.0, 7.0), pos 22",
+            False,
+        ),
+        (
+            r"{\fade(1,2,3,4,5,6,-7)}",
+            r"\fade expected positive times, got (4.0, 5.0, 6.0, -7.0), pos 22",
+            False,
+        ),
+        (
+            r"{\t(garbage,asd)}",
+            "syntax error at pos 16: \\t requires decimal acceleration value",
+            True,
+        ),
+        (
+            r"{\t(garbage,0,asd)}",
+            "syntax error at pos 18: \\t requires decimal times",
+            True,
+        ),
+        (
+            r"{\t(0,garbage,asd)}",
+            "syntax error at pos 18: \\t requires decimal times",
+            True,
+        ),
+        (
+            r"{\t(garbage,0,0,asd)}",
+            "syntax error at pos 20: \\t requires decimal times",
+            True,
+        ),
+        (
+            r"{\t(0,garbage,0,asd)}",
+            "syntax error at pos 20: \\t requires decimal times",
+            True,
+        ),
+        (
+            r"{\t(0,0,garbage,asd)}",
+            "syntax error at pos 20: \\t requires decimal acceleration value",
+            True,
+        ),
+        (
+            r"{\t(-1,asd)}",
+            r"\t expected positive acceleration value, got -1.0, pos 11",
+            False,
+        ),
+        (
+            r"{\t(-1,0,asd)}",
+            r"\t expected positive times, got -1.0, 0.0, pos 13",
+            False,
+        ),
+        (
+            r"{\t(0,-1,asd)}",
+            r"\t expected positive times, got 0.0, -1.0, pos 13",
+            False,
+        ),
+        (
+            r"{\t(-1,0,0,asd)}",
+            r"\t expected positive times, got -1.0, 0.0, pos 15",
+            False,
+        ),
+        (
+            r"{\t(0,-1,0,asd)}",
+            r"\t expected positive times, got 0.0, -1.0, pos 15",
+            False,
+        ),
+        (
+            r"{\t(0,0,-1,asd)}",
+            r"\t expected positive acceleration value, got -1.0, pos 15",
+            False,
+        ),
+        (r"{\cgarbage)}", r"syntax error at pos 4: expected ampersand", True),
+        (r"{\c&123456&}", "syntax error at pos 5: expected uppercase H", True),
+        (
+            r"{\1c&H12345&}",
+            "syntax error at pos 12: expected hexadecimal number",
+            True,
+        ),
+        (
+            r"{\1c&H1234567&}",
+            "syntax error at pos 13: expected ampersand",
+            True,
+        ),
+        (
+            r"{\1c&H12345G&}",
+            "syntax error at pos 12: expected hexadecimal number",
+            True,
+        ),
+        (r"{\alpha&12&}", "syntax error at pos 9: expected uppercase H", True),
+        (
+            r"{\1a&H1&}",
+            "syntax error at pos 8: expected hexadecimal number",
+            True,
+        ),
+        (r"{\1a&H123&}", "syntax error at pos 9: expected ampersand", True),
+        (
+            r"{\1a&H1G&}",
+            "syntax error at pos 8: expected hexadecimal number",
+            True,
+        ),
+        (r"{\k-5}", r"\k expected positive decimal, got -5.0, pos 5", False),
+        (r"{\K-5}", r"\K expected positive decimal, got -5.0, pos 5", False),
+        (r"{\kf-5}", r"\kf expected positive decimal, got -5.0, pos 6", False),
+        (r"{\ko-5}", r"\ko expected positive decimal, got -5.0, pos 6", False),
+        (r"{\k}", r"syntax error at pos 3: \k requires an argument", True),
+        (r"{\K}", r"syntax error at pos 3: \K requires an argument", True),
+        (r"{\kf}", r"syntax error at pos 4: \kf requires an argument", True),
+        (r"{\ko}", r"syntax error at pos 4: \ko requires an argument", True),
+        (r"{\an10}", r"syntax error at pos 6: \an expects 1-9", True),
+        (
+            r"{\a4}",
+            r"syntax error at pos 4: \a expects 1-3, 5-7 or 9-11",
+            True,
+        ),
+        (
+            r"{\a8}",
+            r"syntax error at pos 4: \a expects 1-3, 5-7 or 9-11",
+            True,
+        ),
+        (
+            r"{\a12}",
+            r"syntax error at pos 5: \a expects 1-3, 5-7 or 9-11",
+            True,
+        ),
+        (r"{\q5}", r"syntax error at pos 4: \q expects 0, 1, 2 or 3", True),
+        (r"{\garbage}", r"\garbage is unknown, pos 9", False),
+        (r"{\5c&H123456&}", r"\5c&H123456& is unknown, pos 13", False),
+        (r"{\5a&H12&}", r"\5a&H12& is unknown, pos 9", False),
+        (r"{\1c&HFFFFFF&derp}", "syntax error at pos 13: extra data", True),
+        (r"{\1a&HFF&derp}", "syntax error at pos 9: extra data", True),
+        (r"{\be2a}", r"syntax error at pos 6: \be requires a decimal", True),
+        (
+            r"{\kgarbage}",
+            r"syntax error at pos 10: \k requires a decimal",
+            True,
+        ),
+        (
+            r"{\Kgarbage}",
+            r"syntax error at pos 10: \K requires a decimal",
+            True,
+        ),
+        (
+            r"{\kfgarbage}",
+            r"syntax error at pos 11: \kf requires a decimal",
+            True,
+        ),
+        (
+            r"{\kogarbage}",
+            r"syntax error at pos 11: \ko requires a decimal",
+            True,
+        ),
+        (r"{\i-2}", r"syntax error at pos 5: \i requires a boolean", True),
+        (r"{\i2}", r"syntax error at pos 4: \i requires a boolean", True),
+        (r"{\u2}", r"syntax error at pos 4: \u requires a boolean", True),
+        (r"{\s2}", r"syntax error at pos 4: \s requires a boolean", True),
+        (
+            r"{\c(123456)}",
+            r"syntax error at pos 3: \c doesn't take complex arguments",
+            True,
+        ),
+        (
+            r"{\fn(Comic Sans)}",
+            r"syntax error at pos 4: \fn doesn't take complex arguments",
+            True,
+        ),
+        (
+            r"{\a(12)}",
+            r"syntax error at pos 3: \a doesn't take complex arguments",
+            True,
+        ),
+        (
+            r"{\b1comment}",
+            r"syntax error at pos 11: \b requires an integer",
+            True,
+        ),
+        (r"{asd\asd}", r"syntax error at pos 8: \a requires an integer", True),
+        (
+            r"{\pbogarbage}",
+            r"syntax error at pos 12: \pbo requires a decimal",
+            True,
+        ),
+    ],
+)
+def test_parsing_invalid_ass_line_non_strict(
+    source_line: str, error_msg: str, should_err: bool
+) -> None:
+    if should_err:
+        with pytest.raises(ParseError) as exc_info:
+            parse_ass(source_line, strict=False)
+        assert error_msg == str(exc_info.value)
+    else:
+        warn_match = r".*" + re.escape(error_msg) + ".*"
+        with pytest.warns(AssParserWarning, match=warn_match):
+            parse_ass(source_line, strict=False)

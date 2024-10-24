@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Union
+from warnings import warn
 
 try:
     from functools import cache as _cache  # type: ignore
@@ -67,6 +68,7 @@ from ass_tag_parser.ass_struct import (
 from ass_tag_parser.common import Meta
 from ass_tag_parser.draw_parser import parse_draw_commands
 from ass_tag_parser.errors import (
+    AssParserWarning,
     BadAssTagArgument,
     ParseError,
     UnexpectedCurlyBrace,
@@ -80,6 +82,7 @@ from ass_tag_parser.io import MyIO
 class _ParseContext:
     io: MyIO
     drawing_tag: Optional[AssTagDraw] = None
+    strict: Optional[bool] = True
 
 
 def _single_arg(ctx: _ParseContext, tag: str) -> tuple[Optional[str]]:
@@ -168,8 +171,14 @@ def _int_arg(ctx: _ParseContext, tag: str) -> tuple[Optional[int]]:
 def _positive_int_arg(ctx: _ParseContext, tag: str) -> tuple[Optional[int]]:
     (value,) = _int_arg(ctx, tag)
     if value is not None and value < 0:
-        raise BadAssTagArgument(
-            ctx.io.global_pos, f"{tag} takes only positive integers"
+        if ctx.strict:
+            raise BadAssTagArgument(
+                ctx.io.global_pos, f"{tag} takes only positive integers"
+            )
+        warn(
+            f"unexpected: {ctx.io.text} ({tag} expected positive integer, "
+            f"got {value}, pos {ctx.io.global_pos})",
+            AssParserWarning,
         )
     return (value,)
 
@@ -191,9 +200,16 @@ def _positive_float_arg(
 ) -> tuple[Optional[float]]:
     (value,) = _float_arg(ctx, tag)
     if value is not None and value < 0:
-        raise BadAssTagArgument(
-            ctx.io.global_pos, f"{tag} takes only positive decimals"
+        if ctx.strict:
+            raise BadAssTagArgument(
+                ctx.io.global_pos, f"{tag} takes only positive decimals"
+            )
+        warn(
+            f"unexpected: {ctx.io.text} ({tag} expected positive decimal, "
+            f"got {value}, pos {ctx.io.global_pos})",
+            AssParserWarning,
         )
+
     return (value,)
 
 
@@ -222,8 +238,14 @@ def _fade_simple_args(ctx: _ParseContext, tag: str) -> tuple[float, float]:
             float(args[1][0]),
         )
         if any(time < 0 for time in times):
-            raise BadAssTagArgument(
-                ctx.io.global_pos, f"{tag} takes only positive times"
+            if ctx.strict:
+                raise BadAssTagArgument(
+                    ctx.io.global_pos, f"{tag} takes only positive times"
+                )
+            warn(
+                f"unexpected: {ctx.io.text} ({tag} expected positive times"
+                f", got {times}, pos {ctx.io.global_pos})",
+                AssParserWarning,
             )
     except ValueError as exc:
         raise BadAssTagArgument(
@@ -261,8 +283,14 @@ def _fade_complex_args(
             float(args[6][0]),
         )
         if any(time < 0 for time in times):
-            raise BadAssTagArgument(
-                ctx.io.global_pos, f"{tag} takes only positive times"
+            if ctx.strict:
+                raise BadAssTagArgument(
+                    ctx.io.global_pos, f"{tag} takes only positive times"
+                )
+            warn(
+                f"unexpected: {ctx.io.text} ({tag} expected positive times"
+                f", got {times}, pos {ctx.io.global_pos})",
+                AssParserWarning,
             )
     except ValueError as exc:
         raise BadAssTagArgument(
@@ -408,8 +436,14 @@ def _move_args(
         try:
             speed = (float(args[4][0]), float(args[5][0]))
             if any(time < 0 for time in speed):
-                raise BadAssTagArgument(
-                    ctx.io.global_pos, f"{tag} takes only positive times"
+                if ctx.strict:
+                    raise BadAssTagArgument(
+                        ctx.io.global_pos, f"{tag} takes only positive times"
+                    )
+                warn(
+                    f"unexpected: {ctx.io.text} ({tag} expected positive times"
+                    f", got {speed}, pos {ctx.io.global_pos})",
+                    AssParserWarning,
                 )
         except ValueError as exc:
             raise BadAssTagArgument(
@@ -457,8 +491,15 @@ def _animation_args(
             ctx.io.global_pos, f"{tag} requires decimal acceleration value"
         ) from exc
     if acceleration is not None and acceleration < 0:
-        raise BadAssTagArgument(
-            ctx.io.global_pos, f"{tag} takes only positive acceleration value"
+        if ctx.strict:
+            raise BadAssTagArgument(
+                ctx.io.global_pos,
+                f"{tag} takes only positive acceleration value",
+            )
+        warn(
+            f"unexpected: {ctx.io.text} ({tag} expected positive acceleration value"
+            f", got {acceleration}, pos {ctx.io.global_pos})",
+            AssParserWarning,
         )
 
     try:
@@ -469,8 +510,14 @@ def _animation_args(
             ctx.io.global_pos, f"{tag} requires decimal times"
         ) from exc
     if (time1 is not None and time1 < 0) or (time2 is not None and time2 < 0):
-        raise BadAssTagArgument(
-            ctx.io.global_pos, f"{tag} takes only positive times"
+        if ctx.strict:
+            raise BadAssTagArgument(
+                ctx.io.global_pos, f"{tag} takes only positive times"
+            )
+        warn(
+            f"unexpected: {ctx.io.text} ({tag} expected positive times"
+            f", got {time1}, {time2}, pos {ctx.io.global_pos})",
+            AssParserWarning,
         )
 
     old_io = ctx.io
@@ -543,15 +590,37 @@ _PARSING_MAP = [
 ]
 
 
-def _parse_ass_tag(ctx: _ParseContext) -> AssTag:
-    i = ctx.io.global_pos
+def _try_parse_clip(ctx: _ParseContext) -> AssTag | None:
 
     for prefix in [r"\clip", r"\iclip"]:
         if ctx.io.peek(len(prefix)) != prefix:
             continue
         ctx.io.skip(len(prefix))
         inverse = prefix == r"\iclip"
-        args = _complex_args(ctx, prefix, {1, 2, 4})
+        try:
+            args = _complex_args(ctx, prefix, {1, 2, 4})
+        except BadAssTagArgument:
+            if not ctx.strict:
+                # handle "empty" \clip, \iclip, \clip(), \iclip()
+                # that are often inserted accidentally
+                check = ctx.io.peek(2)
+
+                if not check or check[0] == "\\":
+                    warn(
+                        f"unexpected: {ctx.io.text} (ignoring empty {prefix}, "
+                        f"pos {ctx.io.global_pos})",
+                        AssParserWarning,
+                    )
+                    return AssTagComment(prefix)
+                if check == "()":
+                    ctx.io.skip(2)
+                    warn(
+                        f"unexpected: {ctx.io.text} (ignoring empty {prefix}, "
+                        f"pos {ctx.io.global_pos})",
+                        AssParserWarning,
+                    )
+                    return AssTagComment(prefix + check)
+            raise
 
         scale: Optional[int]
         if len(args) == 1:
@@ -592,7 +661,11 @@ def _parse_ass_tag(ctx: _ParseContext) -> AssTag:
             )
 
         assert False
+    return None
 
+
+def _try_parse_tag(ctx: _ParseContext) -> AssTag | None:
+    i = ctx.io.global_pos
     for prefix, cls, arg_func in _PARSING_MAP:
         if ctx.io.peek(len(prefix)) == prefix:
             ctx.io.skip(len(prefix))
@@ -610,6 +683,33 @@ def _parse_ass_tag(ctx: _ParseContext) -> AssTag:
                 ctx.drawing_tag = ret
 
             return ret
+    return None
+
+
+def _parse_ass_tag(ctx: _ParseContext) -> AssTag:
+    tag = _try_parse_clip(ctx)
+    if tag:
+        return tag
+
+    tag = _try_parse_tag(ctx)
+    if tag:
+        return tag
+
+    if not ctx.strict:
+        check = ctx.io.peek(None)
+        if check and check[0] == "\\":
+            buffer = check.lstrip("\\")
+            if "\\" in buffer:
+                bad_tag_len = buffer.index("\\") + len(check) - len(buffer)
+                bad_tag = ctx.io.read(bad_tag_len)
+            else:
+                bad_tag = ctx.io.read(None)
+            # entire rest of entry is a single bad tag
+            warn(
+                f"unexpected: {ctx.io.text} ({bad_tag} is unknown, pos {ctx.io.global_pos})",
+                AssParserWarning,
+            )
+            return AssTagComment(bad_tag)
 
     raise UnknownTag(ctx.io.global_pos)
 
@@ -707,8 +807,8 @@ def _parse_ass(ctx: _ParseContext) -> Iterable[AssItem]:
                 yield ass_text
 
 
-def parse_ass(text: str) -> list[AssItem]:
-    ctx = _ParseContext(io=MyIO(text))
+def parse_ass(text: str, strict: bool = True) -> list[AssItem]:
+    ctx = _ParseContext(io=MyIO(text), drawing_tag=None, strict=strict)
     return list(_parse_ass(ctx))
 
 

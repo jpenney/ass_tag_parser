@@ -41,7 +41,7 @@ class MyIO:
         self._io.seek(pos)
         return ret
 
-    def read(self, num: int) -> str:
+    def read(self, num: int | None) -> str:
         return self._io.read(num)
 
     def write(self, text: str) -> None:
@@ -50,7 +50,7 @@ class MyIO:
     def skip(self, num: int) -> None:
         self._io.seek(self.pos + num)
 
-    def peek(self, num: int) -> str:
+    def peek(self, num: int | None) -> str:
         old_pos = self._io.tell()
         ret = self._io.read(num)
         self._io.seek(old_pos)

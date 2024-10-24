@@ -33,3 +33,7 @@ class UnterminatedCurlyBrace(ParseError):
 class BadAssTagArgument(ParseError):
     def __init__(self, pos: int, msg: Optional[str] = None) -> None:
         super().__init__(pos, "bad ass argument" if msg is None else msg)
+
+
+class AssParserWarning(UserWarning):
+    pass

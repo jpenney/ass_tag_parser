@@ -18,6 +18,7 @@ __all__ = [
     "AssDrawCmdSpline",
     "AssDrawPoint",
     "AssItem",
+    "AssParserWarning",
     "AssTag",
     "AssTagAlignment",
     "AssTagAlpha",
