@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 from ass_tag_parser import (

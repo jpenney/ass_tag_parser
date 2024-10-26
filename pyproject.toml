@@ -23,12 +23,13 @@ packages = [
 include = ["ass_tag_parser/py.typed"]
 
 [tool.poetry.dependencies]
-python = ">=3.9"
+python = ">=3.8"
 
 [tool.poetry.dev-dependencies]
 pre-commit = "^2.16.0"
-black = "^21.12b0"
+black = ">=21.12b0"
 pytest = "^6.2.5"
+isort = ">=5.10.1, <5.14"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -45,6 +46,7 @@ include_trailing_comma = true
 [tool.mypy]
 strict = true
 disallow_untyped_decorators = false
+python_version = "3.8"
 
 [tool.pylint.master]
 jobs = 0
@@ -52,7 +54,7 @@ jobs = 0
 [tool.pylint.message_control]
 disable = [
     "import-error",
-    "no-self-use",
+    "no-self-use", # pylint: disable=useless-option-value
     "missing-docstring",
     "too-few-public-methods",
     "duplicate-code",

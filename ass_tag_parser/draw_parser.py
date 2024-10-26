@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Iterable, Optional, Union, cast
 
@@ -81,12 +83,16 @@ def _parse_draw_commands(ctx: _ParseContext) -> Iterable[AssDrawCmd]:
         elif cmd == "l":
             ret = AssDrawCmdLine(list(_read_points(ctx.io, min_count=1)))
         elif cmd == "b":
-            ret = AssDrawCmdBezier(
-                cast(
-                    tuple[AssDrawPoint, AssDrawPoint, AssDrawPoint],
-                    tuple(_read_points(ctx.io, min_count=3, max_count=3)),
+            points = tuple(_read_points(ctx.io, min_count=3, max_count=3))
+            try:
+                ret = AssDrawCmdBezier(
+                    cast(
+                        tuple[AssDrawPoint, AssDrawPoint, AssDrawPoint], points
+                    )
                 )
-            )
+            except TypeError:
+                # This is a workaround for Python 3.8
+                ret = AssDrawCmdBezier(points)  # type: ignore
         elif cmd == "s":
             ret = AssDrawCmdSpline(
                 list(_read_points(ctx.io, min_count=3, max_count=None))

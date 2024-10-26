@@ -1,7 +1,21 @@
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
-from functools import cache
 from typing import Any, Iterable, Optional, Union
+
+try:
+    from functools import cache as _cache  # type: ignore
+
+    def cache(user_function: Any) -> Any:
+        return _cache(user_function)
+
+except ImportError:
+
+    # skip cahcing on Python < 3.9
+    def cache(user_function: Any) -> Any:
+        return user_function
+
 
 from ass_tag_parser.ass_struct import (
     AssItem,
